@@ -5,6 +5,9 @@ on:
     branches:
       - main  # Change to your default branch if different
 
+permissions:
+  contents: write  # needed to create/update GitHub Releases
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -50,3 +53,32 @@ jobs:
         with:
           name: mtls-debug-server-${{ matrix.name }}
           path: ${{ env.artifact }}
+
+  publish:
+    name: Publish Nightly Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -al dist
+
+      - name: Create/Update Nightly Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nightly
+          name: Nightly build
+          body: |
+            Automated nightly build for commit ${{ github.sha }} on ${{ github.ref }}.
+            Contains cross-platform binaries.
+          prerelease: true
+          draft: false
+          files: |
+            dist/mtls-debug-server-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

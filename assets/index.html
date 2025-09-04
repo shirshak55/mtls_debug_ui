@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mTLS Debug Server</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-50 text-gray-900">
+    <header class="bg-white border-b sticky top-0 z-10">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+        <h1 class="text-2xl font-semibold tracking-tight">mTLS Debug Server</h1>
+        <div class="text-sm text-gray-500">HTTP UI on :8080 • TLS echo on :4433</div>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <!-- Alerts -->
+      <div id="alert" class="hidden rounded-md border p-4"></div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Recent TLS sessions at the top -->
+        <section class="lg:col-span-3 bg-white border rounded-lg shadow-sm">
+          <div class="p-4 border-b flex items-center justify-between">
+            <h2 class="text-lg font-medium">Recent TLS sessions</h2>
+            <div class="text-sm text-gray-500">
+              Auto-refreshing <span id="refreshBadge" class="inline-block rounded-full bg-gray-100 px-2 py-0.5">2s</span>
+            </div>
+          </div>
+          <div class="p-4 overflow-x-auto">
+            <table class="min-w-full text-sm">
+              <thead class="text-left text-gray-600">
+                <tr>
+                  <th class="py-2 pr-4">Time (UTC)</th>
+                  <th class="py-2 pr-4">Peer</th>
+                  <th class="py-2 pr-4">Status</th>
+                  <th class="py-2 pr-4">TLS</th>
+                  <th class="py-2 pr-4">Cipher</th>
+                  <th class="py-2 pr-4">ALPN</th>
+                  <th class="py-2 pr-4">SNI</th>
+                  <th class="py-2">Client Cert</th>
+                </tr>
+              </thead>
+              <tbody id="sessionsTbodyTop" class="divide-y"></tbody>
+            </table>
+          </div>
+        </section>
+        <!-- Config card -->
+        <section class="lg:col-span-2 bg-white border rounded-lg shadow-sm">
+          <div class="p-4 border-b flex items-center justify-between">
+            <h2 class="text-lg font-medium">Client: TLS configuration and one click setup</h2>
+            <div class="text-sm text-gray-500" id="cfgStatus">Loading…</div>
+          </div>
+          <div class="p-4 space-y-4">
+            <div class="flex items-center gap-3">
+              <button id="randomCaBtn" class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">Set Random CA</button>
+              <button id="generateBtn" class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">Generate & Apply All</button>
+              <button id="testBtn" class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Run Test</button>
+              <button id="deleteBtn" class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">Delete Sessions</button>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1" for="mtlsMode">mTLS Mode</label>
+              <select id="mtlsMode" class="w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                <option value="off">Off</option>
+                <option value="optional">Optional</option>
+                <option value="required">Required</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1" for="clientCa">Client CA (PEM)</label>
+              <textarea id="clientCa" rows="8" class="w-full font-mono text-xs rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"></textarea>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium mb-1" for="serverCert">Server Cert (PEM)</label>
+                <textarea id="serverCert" rows="10" class="w-full font-mono text-xs rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"></textarea>
+              </div>
+              <div>
+                <label class="block text-sm font-medium mb-1" for="serverKey">Server Key (PEM)</label>
+                <textarea id="serverKey" rows="10" class="w-full font-mono text-xs rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" placeholder="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"></textarea>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <button id="applyBtn" class="inline-flex items-center gap-2 px-4 py-2 rounded-md border bg-white hover:bg-gray-50">Apply Config</button>
+              <button id="clearBtn" class="inline-flex items-center gap-2 px-4 py-2 rounded-md border bg-white hover:bg-gray-50">Clear Fields</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Tools card -->
+        <section class="space-y-6">
+          <div class="bg-white border rounded-lg shadow-sm">
+            <div class="p-4 border-b">
+              <h3 class="text-lg font-medium">Current Config</h3>
+            </div>
+            <div class="p-4">
+              <pre id="cfgSummaryBox" class="bg-gray-50 border rounded p-3 overflow-auto text-xs whitespace-pre-wrap"></pre>
+            </div>
+          </div>
+
+          <div class="bg-white border rounded-lg shadow-sm">
+            <div class="p-4 border-b">
+              <h3 class="text-lg font-medium">Current Config</h3>
+            </div>
+            <div class="p-4 text-sm space-y-3">
+              <ul id="cfgSummary" class="space-y-1"></ul>
+              <div id="certSummaries" class="text-xs text-gray-700"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+  <!-- (Removed duplicate sessions section) -->
+    </main>
+
+    <footer class="text-center text-xs text-gray-500 py-6">Built for local TLS/mTLS testing</footer>
+
+    <script>
+      const alertEl = document.getElementById('alert');
+      function showAlert(kind, msg) {
+        alertEl.className = '';
+        alertEl.classList.add('rounded-md','border','p-4');
+        if (kind === 'ok') {
+          alertEl.classList.add('bg-emerald-50','border-emerald-200','text-emerald-800');
+        } else {
+          alertEl.classList.add('bg-red-50','border-red-200','text-red-800');
+        }
+        alertEl.textContent = msg;
+        alertEl.classList.remove('hidden');
+        setTimeout(() => alertEl.classList.add('hidden'), 4000);
+      }
+
+      async function getJSON(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+      async function postJSON(url, body) {
+        const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {})});
+        const txt = await res.text();
+        let data;
+        try { data = txt ? JSON.parse(txt) : {}; } catch { data = { raw: txt }; }
+        if (!res.ok) throw new Error(data?.error || res.status + ' ' + res.statusText);
+        return data;
+      }
+
+      const mtlsMode = document.getElementById('mtlsMode');
+      const serverCert = document.getElementById('serverCert');
+      const serverKey = document.getElementById('serverKey');
+      const clientCa = document.getElementById('clientCa');
+      const cfgStatus = document.getElementById('cfgStatus');
+  const cfgSummary = document.getElementById('cfgSummary');
+  const cfgSummaryBox = document.getElementById('cfgSummaryBox');
+
+      async function loadConfig() {
+        try {
+          const c = await getJSON('/api/config');
+          mtlsMode.value = c.mtls_mode;
+          cfgStatus.textContent = `mTLS: ${c.mtls_mode}`;
+          cfgSummary.innerHTML = '';
+          const items = [
+            ['mTLS Mode', c.mtls_mode],
+            ['Server cert', c.has_server_cert ? 'present' : 'missing'],
+            ['Server key', c.has_server_key ? 'present' : 'missing'],
+            ['Client CA', c.has_client_ca ? 'present' : 'missing'],
+          ];
+          for (const [k,v] of items) {
+            const li = document.createElement('li');
+            li.innerHTML = `<span class="text-gray-600">${k}:</span> <span class="font-medium">${v}</span>`;
+            cfgSummary.appendChild(li);
+          }
+          cfgSummaryBox.textContent = items.map(([k,v]) => `${k}: ${v}`).join('\n');
+          const cs = document.getElementById('certSummaries');
+          const renderCert = (label, s) => `
+            <div class="mt-2">
+              <div class="font-semibold">${label}</div>
+              <div>Subject: <code>${s.subject}</code></div>
+              <div>Issuer: <code>${s.issuer}</code></div>
+              <div>Validity: <code>${s.not_before}</code> → <code>${s.not_after}</code></div>
+              <div>SHA-256: <code>${s.sha256}</code></div>
+              ${s.sans && s.sans.length ? `<div>SANs: <code>${s.sans.join(', ')}</code></div>` : ''}
+            </div>`;
+          const parts = [];
+          if (c.server_cert_summary) parts.push(renderCert('Server cert', c.server_cert_summary));
+          if (c.client_ca_summary) parts.push(renderCert('Client CA', c.client_ca_summary));
+          cs.innerHTML = parts.join('');
+        } catch (e) {
+          cfgStatus.textContent = 'Failed to load';
+        }
+      }
+
+      document.getElementById('applyBtn').addEventListener('click', async () => {
+        const payload = {
+          mtls_mode: mtlsMode.value,
+          server_cert_pem: serverCert.value || null,
+          server_key_pem: serverKey.value || null,
+          client_ca_pem: clientCa.value || null,
+        };
+        try {
+          await postJSON('/api/config', payload);
+          showAlert('ok', 'Configuration applied');
+          await loadConfig();
+        } catch (e) {
+          showAlert('err', 'Apply failed: ' + e.message);
+        }
+      });
+
+      document.getElementById('clearBtn').addEventListener('click', () => {
+        serverCert.value = '';
+        serverKey.value = '';
+        clientCa.value = '';
+      });
+
+  document.getElementById('generateBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('generateBtn');
+        btn.disabled = true; btn.textContent = 'Generating…';
+        try {
+          const r = await postJSON('/api/generate', {});
+          // Fill fields to let users tweak or re-apply
+          mtlsMode.value = 'required';
+          serverCert.value = r.server_cert_pem;
+          serverKey.value = r.server_key_pem;
+          clientCa.value = r.ca_cert_pem;
+
+          showAlert('ok', r.applied ? 'Generated and applied mTLS config' : 'Generated certs (apply failed)');
+          await loadConfig();
+        } catch (e) {
+          showAlert('err', 'Generate failed: ' + e.message);
+        } finally {
+          btn.disabled = false; btn.textContent = 'Generate & Apply';
+        }
+      });
+
+      document.getElementById('testBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('testBtn');
+        btn.disabled = true; btn.textContent = 'Running…';
+        try {
+          const r = await postJSON('/api/test', {});
+          showAlert(r.success ? 'ok' : 'err', r.success ? 'TLS echo succeeded' : 'TLS echo failed');
+        } catch (e) {
+          showAlert('err', 'Test failed: ' + e.message);
+        } finally {
+          btn.disabled = false; btn.textContent = 'Run Test';
+        }
+      });
+
+      document.getElementById('randomCaBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('randomCaBtn');
+        btn.disabled = true; btn.textContent = 'Setting…';
+        try {
+          const r = await postJSON('/api/random-ca', {});
+          clientCa.value = r.ca_cert_pem;
+          await loadConfig();
+          showAlert('ok', 'Random CA set');
+        } catch (e) {
+          showAlert('err', 'Failed to set random CA: ' + e.message);
+        } finally {
+          btn.disabled = false; btn.textContent = 'Set Random CA';
+        }
+      });
+
+      document.getElementById('deleteBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('deleteBtn');
+        btn.disabled = true; btn.textContent = 'Deleting…';
+        try {
+          const res = await fetch('/api/sessions', { method: 'DELETE' });
+          if (!res.ok) throw new Error(await res.text());
+          showAlert('ok', 'Deleted sessions');
+          await loadSessions();
+        } catch (e) {
+          showAlert('err', 'Delete failed: ' + e.message);
+        } finally {
+          btn.disabled = false; btn.textContent = 'Delete Sessions';
+        }
+      });
+
+    async function loadSessions() {
+        try {
+          const list = await getJSON('/api/sessions');
+      const tbody = document.getElementById('sessionsTbodyTop');
+          tbody.innerHTML = '';
+          const ordered = list; // newest first
+
+          for (const s of ordered) {
+            const tr = document.createElement('tr');
+            const td = (t) => { const el = document.createElement('td'); el.className='py-2 pr-4 align-top'; el.textContent = t ?? ''; return el; };
+            tr.appendChild(td(s.timestamp));
+            tr.appendChild(td(s.peer_addr));
+            const statusEl = document.createElement('td');
+            statusEl.className = 'py-2 pr-4';
+            statusEl.innerHTML = `<span class="px-2 py-0.5 rounded-full text-xs ${s.status==='ok' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${s.status}</span>`;
+            tr.appendChild(statusEl);
+            tr.appendChild(td(s.tls_version));
+            tr.appendChild(td(s.cipher_suite));
+            tr.appendChild(td(s.alpn));
+            tr.appendChild(td(s.sni));
+            tr.appendChild(td(s.client_cert_present ? 'yes' : 'no'));
+            tr.classList.add('cursor-pointer','hover:bg-gray-50');
+            tr.addEventListener('click', () => showSessionModal(s));
+            tbody.appendChild(tr);
+            if (s.error || s.handshake_read_bytes != null || s.handshake_written_bytes != null) {
+              const tr2 = document.createElement('tr');
+              const td2 = document.createElement('td');
+              td2.colSpan = 8; td2.className = 'pb-3 text-xs';
+              let lines = [];
+              if (s.error) lines.push(`<div class="text-red-700">${s.error}</div>`);
+              if (s.handshake_read_bytes != null || s.handshake_written_bytes != null) {
+                lines.push(`<div class="text-gray-600">SSL handshake has read ${s.handshake_read_bytes ?? 0} bytes and written ${s.handshake_written_bytes ?? 0} bytes</div>`);
+              }
+              td2.innerHTML = lines.join('');
+              tr2.appendChild(td2);
+              tbody.appendChild(tr2);
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      // Modal for session details
+      const modal = document.createElement('div');
+      modal.id = 'sessionModal';
+      modal.className = 'hidden fixed inset-0 bg-black/40 z-20';
+      modal.innerHTML = `
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+          <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl">
+            <div class="p-4 border-b flex items-center justify-between">
+              <div class="font-medium">Session details</div>
+              <button id="modalClose" class="text-gray-500 hover:text-gray-800">✕</button>
+            </div>
+            <div class="p-4 space-y-3 text-sm max-h-[70vh] overflow-auto">
+              <div id="modalMeta" class="text-gray-600"></div>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div><div class="text-gray-500">TLS</div><div class="font-mono text-xs mt-1" id="mTls"></div></div>
+                <div><div class="text-gray-500">Cipher</div><div class="font-mono text-xs mt-1" id="mCipher"></div></div>
+                <div><div class="text-gray-500">ALPN</div><div class="font-mono text-xs mt-1" id="mAlpn"></div></div>
+                <div><div class="text-gray-500">SNI</div><div class="font-mono text-xs mt-1" id="mSni"></div></div>
+                <div><div class="text-gray-500">Client Cert</div><div class="mt-1" id="mCli"></div></div>
+                <div><div class="text-gray-500">Handshake I/O</div><div class="font-mono text-xs mt-1" id="mIo"></div></div>
+              </div>
+              <div id="mError"></div>
+              <details>
+                <summary class="cursor-pointer">Client Hello Details</summary>
+                <pre id="mCh" class="mt-2 bg-gray-50 border rounded p-2 overflow-auto text-xs"></pre>
+              </details>
+              <details>
+                <summary class="cursor-pointer">Client Certificates</summary>
+                <pre id="mCerts" class="mt-2 bg-gray-50 border rounded p-2 overflow-auto text-xs"></pre>
+              </details>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+      function showSessionModal(s) {
+        modal.classList.remove('hidden');
+        document.getElementById('modalClose').onclick = () => modal.classList.add('hidden');
+        document.getElementById('modalMeta').textContent = `${s.timestamp}${s.peer_addr ? ' • ' + s.peer_addr : ''}`;
+        document.getElementById('mTls').textContent = s.tls_version ?? '';
+        document.getElementById('mCipher').textContent = s.cipher_suite ?? '';
+        document.getElementById('mAlpn').textContent = s.alpn ?? '';
+        document.getElementById('mSni').textContent = s.sni ?? '';
+        document.getElementById('mCli').textContent = s.client_cert_present ? 'yes' : 'no';
+        document.getElementById('mIo').textContent = `read ${s.handshake_read_bytes ?? 0}, written ${s.handshake_written_bytes ?? 0}`;
+        document.getElementById('mError').innerHTML = s.error ? `<pre class="bg-red-50 border border-red-200 text-red-800 rounded p-2 overflow-auto text-xs">${s.error}</pre>` : '';
+        document.getElementById('mCh').textContent = s.details ? JSON.stringify(s.details, null, 2) : '';
+        const certs = (s.client_certs || []).map(c => ({subject:c.subject, issuer:c.issuer, not_before:c.not_before, not_after:c.not_after, sha256:c.sha256, sans:c.sans}));
+        document.getElementById('mCerts').textContent = certs.length ? JSON.stringify(certs, null, 2) : 'No client certificates';
+      }
+
+      // Kick off
+      loadConfig();
+      // Prefill fields from ./certs if present
+      getJSON('/api/certs').then(c => {
+        if (c.server_cert_pem && !serverCert.value) serverCert.value = c.server_cert_pem;
+        if (c.server_key_pem && !serverKey.value) serverKey.value = c.server_key_pem;
+        if (c.client_ca_pem && !clientCa.value) clientCa.value = c.client_ca_pem;
+      }).catch(() => {});
+      loadSessions();
+      setInterval(loadSessions, 2000);
+    </script>
+  </body>
+  </html>

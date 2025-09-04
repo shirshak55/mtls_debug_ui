@@ -1,0 +1,4 @@
+/target
+certs
+db.sqlite
+.vscode
